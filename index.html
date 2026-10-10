@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0A0A0A" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<meta name="apple-mobile-web-app-title" content="Demo Player" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="manifest" href="manifest.json" />
+<title>Demo Player</title>
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --fg: #EDEDED;
+    --muted: #6B6B6B;
+    --line: #232323;
+    --accent-warn: #C0392B;
+    --accent: #30D158;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", sans-serif;
+    overscroll-behavior-y: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  button {
+    font-family: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+  }
+
+  button:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* ライブラリ画面 */
+
+  .library-header {
+    padding: 24px 24px 16px 24px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+
+  .library-title {
+    font-size: 52px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin: 0;
+    color: var(--accent);
+  }
+
+  .add-button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--accent);
+    padding: 7px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 20px;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+
+  .add-button:active {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+
+  .icon-add {
+    width: 13px;
+    height: 13px;
+  }
+
+  .track-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 24px 24px 24px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .track-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+    gap: 12px;
+  }
+
+  .track-row:last-child {
+    border-bottom: none;
+  }
+
+  /* ドラッグ並べ替え用の持ち手 */
+  .drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 40px;
+    height: 44px;
+    margin-left: -10px;
+    color: var(--muted);
+    /* 持ち手の上だけ、ブラウザのスクロール/ズームを無効化して指ドラッグを受け取る */
+    touch-action: none;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    border-radius: 8px;
+  }
+
+  .drag-handle:active,
+  .track-row.dragging .drag-handle {
+    color: var(--fg);
+    cursor: grabbing;
+  }
+
+  .drag-handle:focus-visible {
+    outline: 1px solid var(--accent);
+  }
+
+  .icon-grip {
+    width: 20px;
+    height: 20px;
+    display: block;
+    pointer-events: none;
+  }
+
+  .track-list {
+    position: relative;
+  }
+
+  .track-list.is-dragging {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .track-row {
+    position: relative;
+    transition: transform 0.18s ease;
+  }
+
+  /* ドラッグ中の行: 浮かせて指に追従させる */
+  .track-row.dragging {
+    transition: none;
+    z-index: 5;
+    background: #1c1c1c;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    border-radius: 10px;
+    border-bottom-color: transparent;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-left: -10px;
+    margin-right: -10px;
+    opacity: 0.97;
+  }
+
+  /* 移動先（ドロップ位置）を示す枠 */
+  .drop-slot {
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    border: 1.5px dashed var(--accent);
+    border-radius: 10px;
+    background: rgba(48, 209, 88, 0.08);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .track-row-main {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    padding: 0;
+  }
+
+  .track-title {
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .track-date {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .track-delete {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0 8px 16px;
+    flex-shrink: 0;
+    color: var(--muted);
+    opacity: 0.7;
+    transition: opacity 0.15s ease, transform 0.1s ease, color 0.15s ease;
+  }
+
+  .track-delete:active {
+    opacity: 1;
+    color: var(--accent-warn);
+    transform: scale(0.9);
+  }
+
+  .icon-delete {
+    width: 17px;
+    height: 17px;
+    display: block;
+  }
+
+  .mini-player {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+    flex-shrink: 0;
+  }
+
+  .mini-player-main {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    padding: 4px 0;
+  }
+
+  .mini-player-title {
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mini-player-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    flex-shrink: 0;
+    transition: transform 0.1s ease, opacity 0.1s ease;
+  }
+
+  .mini-player-toggle:active {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+
+  .icon-mini {
+    width: 24px;
+    height: 24px;
+    fill: var(--fg);
+  }
+
+  .empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 14px;
+    padding: 40px;
+    padding-bottom: 80px;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .import-input {
+    display: none;
+  }
+
+  /* 再生画面 */
+
+  .player-screen {
+    display: flex;
+    flex-direction: column;
+    padding: 20px 24px;
+  }
+
+  .back-button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    align-self: flex-start;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--accent);
+    padding: 7px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 20px;
+    margin-bottom: 24px;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+
+  .back-button:active {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+
+  .icon-back {
+    width: 13px;
+    height: 13px;
+  }
+
+  .player-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 48px;
+  }
+
+  .player-title {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-align: center;
+    line-height: 1.35;
+    padding: 0 8px;
+    word-break: break-word;
+  }
+
+  .seek-block {
+    width: 100%;
+  }
+
+  .seek-bar {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    outline: none;
+  }
+
+  .seek-bar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: -5px;
+    transition: transform 0.1s ease;
+  }
+
+  .seek-bar:active::-webkit-slider-thumb {
+    transform: scale(1.3);
+  }
+
+  .time-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 56px;
+  }
+
+  .transport button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    border-radius: 50%;
+    transition: transform 0.1s ease, opacity 0.1s ease;
+  }
+
+  .transport button:active {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+
+  .icon {
+    width: 26px;
+    height: 26px;
+    fill: var(--fg);
+  }
+
+  .icon-play-pause {
+    width: 48px;
+    height: 48px;
+    fill: var(--fg);
+  }
+
+  .error-banner {
+    margin: 12px 20px 0 20px;
+    padding: 12px 14px;
+    border: 1px solid var(--accent-warn);
+    border-radius: 6px;
+    color: var(--fg);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .error-banner button {
+    display: block;
+    margin-top: 8px;
+    color: var(--accent-warn);
+    font-size: 13px;
+  }
+
+  .confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 10;
+  }
+
+  .confirm-box {
+    background: #161616;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    width: 100%;
+    max-width: 320px;
+  }
+
+  .confirm-text {
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0 0 18px 0;
+  }
+
+  .confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 20px;
+  }
+
+  .confirm-actions button {
+    font-size: 14px;
+    padding: 6px 4px;
+  }
+
+  .confirm-danger {
+    color: var(--accent-warn);
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="db.js"></script>
+
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// 許可する拡張子。最優先はWAV。
+const ALLOWED_EXTENSIONS = ["wav", "aif", "aiff", "m4a", "mp3"];
+
+function extensionOf(filename) {
+  const parts = filename.split(".");
+  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
+}
+
+function titleFromFilename(filename) {
+  const ext = extensionOf(filename);
+  if (ext && filename.toLowerCase().endsWith("." + ext)) {
+    return filename.slice(0, filename.length - ext.length - 1);
+  }
+  return filename;
+}
+
+function formatDate(epochMs) {
+  const d = new Date(epochMs);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatTime(seconds) {
+  if (!isFinite(seconds) || seconds < 0) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// ---- アイコン（シンプルな線画。装飾なし） ----
+
+function IconPlay({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24"><path d="M7 5v14l12-7z" /></svg>
+  );
+}
+function IconPause({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
+  );
+}
+function IconPrev({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24"><path d="M7 5h2v14H7zM19 5v14l-10-7z" /></svg>
+  );
+}
+function IconNext({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24"><path d="M15 5h2v14h-2zM5 5v14l10-7z" /></svg>
+  );
+}
+
+// ---- ライブラリ画面 ----
+
+function IconGrip({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M5 8h14M5 12h14M5 16h14" />
+    </svg>
+  );
+}
+
+function IconPlus({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+function IconBack({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 6l-6 6 6 6" />
+    </svg>
+  );
+}
+function IconTrash({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" />
+    </svg>
+  );
+}
+
+function LibraryScreen({ tracks, onSelectTrack, onImportFiles, onRequestDelete, onReorder, storageError, currentTrack, isPlaying, onTogglePlay, onOpenPlayer }) {
+  const fileInputRef = useRef(null);
+  const listRef = useRef(null);
+
+  // ---- ドラッグ並べ替え（Pointer Events。iPhone Safari / PC マウス共通） ----
+  // drag: null | { from, over, dy, h, slotTop }
+  const [drag, setDrag] = useState(null);
+  const dragRef = useRef(null); // 計測値・ポインタ位置（再レンダリング不要な値）
+  const rafRef = useRef(0);
+
+  const updateDrag = useCallback(() => {
+    const d = dragRef.current;
+    const list = listRef.current;
+    if (!d || !list) return;
+    const rect = list.getBoundingClientRect();
+    const m = d.metrics;
+    const from = d.from;
+    const h = m[from].h;
+
+    // コンテンツ座標（スクロール量込み）でのポインタ位置から移動量を算出
+    const contentY = d.clientY - rect.top + list.scrollTop;
+    let dy = contentY - d.startContentY;
+    const minDy = m[0].top - m[from].top;
+    const maxDy = m[m.length - 1].top + m[m.length - 1].h - h - m[from].top;
+    dy = Math.max(minDy, Math.min(maxDy, dy));
+
+    // 持ち上げた行の中心より上にある他の行の数 = 移動先のインデックス
+    const center = m[from].top + h / 2 + dy;
+    let over = 0;
+    for (let j = 0; j < m.length; j++) {
+      if (j === from) continue;
+      if (m[j].top + m[j].h / 2 < center) over++;
+    }
+
+    const slotTop = over < from ? m[over].top : m[over].top + m[over].h - h;
+    d.over = over;
+    setDrag({ from, over, dy, h, slotTop });
+  }, []);
+
+  const stopLoop = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+  }, []);
+
+  // ドラッグ中、リストの上端/下端付近で自動スクロールする
+  const startLoop = useCallback(() => {
+    const tick = () => {
+      const d = dragRef.current;
+      const list = listRef.current;
+      if (!d || !list) return;
+      const rect = list.getBoundingClientRect();
+      const EDGE = 70;
+      let speed = 0;
+      if (d.clientY < rect.top + EDGE) {
+        speed = -Math.ceil(((rect.top + EDGE - d.clientY) / EDGE) * 14);
+      } else if (d.clientY > rect.bottom - EDGE) {
+        speed = Math.ceil(((d.clientY - (rect.bottom - EDGE)) / EDGE) * 14);
+      }
+      if (speed !== 0) {
+        const before = list.scrollTop;
+        list.scrollTop = before + speed;
+        if (list.scrollTop !== before) updateDrag();
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }, [updateDrag]);
+
+  useEffect(() => () => stopLoop(), [stopLoop]);
+
+  const handlePointerDown = (e, index) => {
+    if (dragRef.current) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const list = listRef.current;
+    if (!list) return;
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+
+    const rows = Array.from(list.querySelectorAll(".track-row"));
+    const metrics = rows.map((r) => ({ top: r.offsetTop, h: r.offsetHeight }));
+    if (!metrics[index]) return;
+    const rect = list.getBoundingClientRect();
+    dragRef.current = {
+      from: index,
+      over: index,
+      metrics,
+      clientY: e.clientY,
+      startContentY: e.clientY - rect.top + list.scrollTop,
+      pointerId: e.pointerId,
+    };
+    setDrag({ from: index, over: index, dy: 0, h: metrics[index].h, slotTop: metrics[index].top });
+    startLoop();
+  };
+
+  const handlePointerMove = (e) => {
+    const d = dragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    d.clientY = e.clientY;
+    updateDrag();
+  };
+
+  const endDrag = (e, commit) => {
+    const d = dragRef.current;
+    if (!d || (e && d.pointerId !== e.pointerId)) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (err) {}
+    stopLoop();
+    dragRef.current = null;
+    setDrag(null);
+    if (commit && d.over !== d.from) {
+      onReorder(d.from, d.over);
+    }
+  };
+
+  // キーボード操作（フォーカスした持ち手で ↑↓）
+  const handleKeyDown = (e, index) => {
+    if (e.key === "ArrowUp" && index > 0) {
+      e.preventDefault();
+      onReorder(index, index - 1);
+    } else if (e.key === "ArrowDown" && index < tracks.length - 1) {
+      e.preventDefault();
+      onReorder(index, index + 1);
+    }
+  };
+
+  // ドラッグ中の各行の見た目上のずらし量
+  const rowOffset = (i) => {
+    if (!drag) return 0;
+    if (i === drag.from) return drag.dy;
+    if (drag.from < drag.over && i > drag.from && i <= drag.over) return -drag.h;
+    if (drag.over < drag.from && i >= drag.over && i < drag.from) return drag.h;
+    return 0;
+  };
+
+  return (
+    <div className="screen">
+      <div className="library-header">
+        <h1 className="library-title">DEMO</h1>
+        <button className="add-button" onClick={() => fileInputRef.current.click()}>
+          <IconPlus className="icon-add" />
+          <span>Add</span>
+        </button>
+        <input
+          ref={fileInputRef}
+          className="import-input"
+          type="file"
+          accept="audio/*,.wav,.aif,.aiff,.m4a,.mp3"
+          multiple
+          onChange={(e) => {
+            const files = Array.from(e.target.files || []);
+            onImportFiles(files);
+            e.target.value = "";
+          }}
+        />
+      </div>
+
+      {storageError && (
+        <div className="error-banner">
+          {storageError}
+        </div>
+      )}
+
+      {tracks.length === 0 ? (
+        <div className="empty-state">
+          音源がありません。右上の「Add」からWAVを選択してください。
+        </div>
+      ) : (
+        <div className={"track-list" + (drag ? " is-dragging" : "")} ref={listRef}>
+          {tracks.map((track, index) => {
+            const isDragged = drag && drag.from === index;
+            const offset = rowOffset(index);
+            return (
+              <div
+                className={"track-row" + (isDragged ? " dragging" : "")}
+                key={track.id}
+                style={offset ? { transform: `translateY(${offset}px)` } : undefined}
+              >
+                <div
+                  className="drag-handle"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`「${track.title}」の順番を変更（ドラッグ、または上下キー）`}
+                  onPointerDown={(e) => handlePointerDown(e, index)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={(e) => endDrag(e, true)}
+                  onPointerCancel={(e) => endDrag(e, false)}
+                  onContextMenu={(e) => e.preventDefault()}
+                  onKeyDown={(e) => handleKeyDown(e, index)}
+                >
+                  <IconGrip className="icon-grip" />
+                </div>
+                <button className="track-row-main" onClick={() => onSelectTrack(track)}>
+                  <div className="track-title">{track.title}</div>
+                  <div className="track-date">{formatDate(track.importedAt)}</div>
+                </button>
+                <button className="track-delete" onClick={() => onRequestDelete(track)} aria-label="Delete">
+                  <IconTrash className="icon-delete" />
+                </button>
+              </div>
+            );
+          })}
+          {drag && (
+            <div className="drop-slot" style={{ top: drag.slotTop, height: drag.h }} />
+          )}
+        </div>
+      )}
+
+      {currentTrack && (
+        <div className="mini-player">
+          <button className="mini-player-main" onClick={onOpenPlayer}>
+            <div className="mini-player-title">{currentTrack.title}</div>
+          </button>
+          <button
+            className="mini-player-toggle"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePlay();
+            }}
+            aria-label={isPlaying ? "一時停止" : "再生"}
+          >
+            {isPlaying ? <IconPause className="icon icon-mini" /> : <IconPlay className="icon icon-mini" />}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- 再生画面 ----
+
+function PlayerScreen({ track, isPlaying, currentTime, duration, onTogglePlay, onNext, onPrev, onSeek, onBack, hasNext, hasPrev }) {
+  const [seeking, setSeeking] = useState(false);
+  const [seekValue, setSeekValue] = useState(0);
+
+  const displayTime = seeking ? seekValue : currentTime;
+
+  return (
+    <div className="screen player-screen">
+      <button className="back-button" onClick={onBack}>
+        <IconBack className="icon-back" />
+        <span>Back</span>
+      </button>
+      <div className="player-body">
+        <div className="player-title">{track ? track.title : ""}</div>
+
+        <div className="seek-block">
+          <input
+            className="seek-bar"
+            type="range"
+            min="0"
+            max={duration > 0 ? duration : 0.01}
+            step="0.01"
+            value={displayTime}
+            style={{
+              background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${
+                duration > 0 ? (displayTime / duration) * 100 : 0
+              }%, var(--line) ${duration > 0 ? (displayTime / duration) * 100 : 0}%, var(--line) 100%)`,
+            }}
+            onChange={(e) => {
+              setSeeking(true);
+              setSeekValue(parseFloat(e.target.value));
+            }}
+            onMouseUp={() => {
+              if (seeking) {
+                onSeek(seekValue);
+                setSeeking(false);
+              }
+            }}
+            onTouchEnd={() => {
+              if (seeking) {
+                onSeek(seekValue);
+                setSeeking(false);
+              }
+            }}
+          />
+          <div className="time-row">
+            <span>{formatTime(displayTime)}</span>
+            <span>{formatTime(duration)}</span>
+          </div>
+        </div>
+
+        <div className="transport">
+          <button onClick={onPrev} disabled={!hasPrev} aria-label="前の曲">
+            <IconPrev className="icon" />
+          </button>
+          <button onClick={onTogglePlay} aria-label={isPlaying ? "一時停止" : "再生"}>
+            {isPlaying ? <IconPause className="icon icon-play-pause" /> : <IconPlay className="icon icon-play-pause" />}
+          </button>
+          <button onClick={onNext} disabled={!hasNext} aria-label="次の曲">
+            <IconNext className="icon" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- 削除確認ダイアログ ----
+
+function ConfirmDeleteDialog({ track, onConfirm, onCancel }) {
+  if (!track) return null;
+  return (
+    <div className="confirm-overlay" onClick={onCancel}>
+      <div className="confirm-box" onClick={(e) => e.stopPropagation()}>
+        <p className="confirm-text">「{track.title}」を削除しますか？<br />この操作は取り消せません。</p>
+        <div className="confirm-actions">
+          <button onClick={onCancel}>Cancel</button>
+          <button className="confirm-danger" onClick={() => onConfirm(track)}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- アプリ本体 ----
+
+function App() {
+  const [tracks, setTracks] = useState([]);
+  const [currentTrack, setCurrentTrack] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [storageError, setStorageError] = useState(null);
+  const [view, setView] = useState("library"); // "library" | "player"
+
+  const audioRef = useRef(null);
+  const objectUrlRef = useRef(null);
+
+  // 初回ロード
+  useEffect(() => {
+    loadLibrary();
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js").catch((err) => {
+        console.warn("Service worker registration failed:", err);
+      });
+    }
+  }, []);
+
+  const loadLibrary = useCallback(async () => {
+    try {
+      const all = await window.DemoPlayerDB.getAllTracks();
+      // 実データ（Blob）を保持しつつ、一覧表示用に軽量な参照も持つ
+      setTracks(all);
+    } catch (err) {
+      console.error("Failed to load library:", err);
+    }
+  }, []);
+
+  // 曲の取り込み
+  const handleImportFiles = useCallback(async (files) => {
+    setStorageError(null);
+
+    // 新規取り込みは常に一覧の先頭に来るよう、現在の最小sortOrderより小さい値から採番する
+    const currentMinOrder = tracks.reduce((min, t) => {
+      const o = typeof t.sortOrder === "number" ? t.sortOrder : -t.importedAt;
+      return Math.min(min, o);
+    }, 0);
+    let nextOrder = currentMinOrder - 1;
+
+    for (const file of files) {
+      const ext = extensionOf(file.name);
+      if (!ALLOWED_EXTENSIONS.includes(ext)) {
+        continue;
+      }
+
+      const track = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        title: titleFromFilename(file.name),
+        importedAt: Date.now(),
+        mimeType: file.type || "application/octet-stream",
+        sortOrder: nextOrder,
+        // 再エンコード・圧縮を一切行わず、選択されたFile(=Blob)をそのまま保存する
+        blob: file,
+      };
+      nextOrder -= 1;
+
+      try {
+        await window.DemoPlayerDB.addTrack(track);
+      } catch (err) {
+        console.error("Failed to save track:", err);
+        if (err && (err.name === "QuotaExceededError" || /quota/i.test(String(err)))) {
+          setStorageError(
+            "保存容量が上限に達しました。不要な音源を削除してから、もう一度お試しください。WAVは圧縮せずに保存する仕様のため、ファイルサイズがそのまま容量を使用します。"
+          );
+        } else {
+          setStorageError(`「${file.name}」の保存に失敗しました。`);
+        }
+        break;
+      }
+    }
+    await loadLibrary();
+  }, [loadLibrary, tracks]);
+
+  // 曲順の更新はDB書き込みの追い越しを防ぐため直列化する
+  const sortUpdateQueueRef = useRef(Promise.resolve());
+
+  // 最新のtracksを参照するref（ドラッグ確定時に古い配列を使わないため）
+  const tracksRef = useRef(tracks);
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
+
+  // 曲順の入れ替え（fromIndex の曲を toIndex の位置へ移動）
+  // 並べ替え後の配列順をそのまま sortOrder (0,1,2,...) として保存する。
+  // 再生キュー(prev/next/自動連続再生)は tracks の並びを参照するため、これで連動する。
+  const handleReorder = useCallback((fromIndex, toIndex) => {
+    const prev = tracksRef.current;
+    if (
+      fromIndex === toIndex ||
+      fromIndex < 0 || toIndex < 0 ||
+      fromIndex >= prev.length || toIndex >= prev.length
+    ) return;
+
+    const reordered = prev.slice();
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+
+    const withOrder = reordered.map((t, i) => ({ ...t, sortOrder: i }));
+    const updates = withOrder.map((t) => ({ id: t.id, sortOrder: t.sortOrder }));
+
+    tracksRef.current = withOrder; // 連続操作に備えて即時反映
+    setTracks(withOrder);
+
+    // DBへの書き込みはキューに繋いで直列実行し、連続操作による追い越しを防ぐ
+    sortUpdateQueueRef.current = sortUpdateQueueRef.current
+      .then(() => window.DemoPlayerDB.updateSortOrders(updates))
+      .catch((err) => {
+        console.error("Failed to save track order:", err);
+      });
+  }, []);
+
+  // 削除
+  const handleRequestDelete = useCallback((track) => {
+    setDeleteTarget(track);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async (track) => {
+    try {
+      await window.DemoPlayerDB.deleteTrack(track.id);
+      if (currentTrack && currentTrack.id === track.id) {
+        stopPlayback();
+        setView("library");
+      }
+      await loadLibrary();
+    } catch (err) {
+      console.error("Failed to delete track:", err);
+    } finally {
+      setDeleteTarget(null);
+    }
+  }, [currentTrack, loadLibrary]);
+
+  // 再生キュー内での現在位置
+  const currentIndex = useMemo(() => {
+    if (!currentTrack) return -1;
+    return tracks.findIndex((t) => t.id === currentTrack.id);
+  }, [tracks, currentTrack]);
+
+  const hasNext = currentIndex >= 0 && currentIndex < tracks.length - 1;
+  const hasPrev = currentIndex > 0;
+
+  function stopPlayback() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setIsPlaying(false);
+    setCurrentTrack(null);
+    setCurrentTime(0);
+    setDuration(0);
+  }
+
+  const playTrack = useCallback((track) => {
+    // ファイルが実在しない（=取得できない）場合は静かにライブラリを再読込して除外する
+    if (!track || !track.blob) {
+      loadLibrary();
+      return;
+    }
+
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+    }
+
+    const url = URL.createObjectURL(track.blob);
+    objectUrlRef.current = url;
+
+    const audio = audioRef.current;
+    audio.src = url;
+    audio.currentTime = 0;
+    setCurrentTrack(track);
+    setCurrentTime(0);
+    setView("player");
+
+    audio.play().then(() => {
+      setIsPlaying(true);
+    }).catch((err) => {
+      console.error("Playback failed:", err);
+      setIsPlaying(false);
+    });
+  }, [loadLibrary]);
+
+  const handleSelectTrack = useCallback((track) => {
+    playTrack(track);
+  }, [playTrack]);
+
+  const handleTogglePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
+    if (isPlaying) {
+      audio.pause();
+      setIsPlaying(false);
+    } else {
+      audio.play().then(() => setIsPlaying(true)).catch((err) => console.error(err));
+    }
+  }, [isPlaying, currentTrack]);
+
+  // ロック画面/コントロールセンターは play と pause を別アクションとして発火するため、
+  // トグルではなく状態を明示的に指定するハンドラを用意する。
+  const handlePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
+    audio.play().then(() => setIsPlaying(true)).catch((err) => console.error(err));
+  }, [currentTrack]);
+
+  const handlePause = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.pause();
+    setIsPlaying(false);
+  }, []);
+
+  const handleNext = useCallback(() => {
+    if (hasNext) {
+      playTrack(tracks[currentIndex + 1]);
+    }
+  }, [hasNext, tracks, currentIndex, playTrack]);
+
+  const handlePrev = useCallback(() => {
+    if (hasPrev) {
+      playTrack(tracks[currentIndex - 1]);
+    } else if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      setCurrentTime(0);
+    }
+  }, [hasPrev, tracks, currentIndex, playTrack]);
+
+  const handleSeek = useCallback((time) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.currentTime = time;
+    setCurrentTime(time);
+  }, []);
+
+  // audio要素のイベントバインド
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const onLoadedMetadata = () => setDuration(audio.duration || 0);
+    const onEnded = () => {
+      // 自動的に次の曲へ
+      setIsPlaying(false);
+      handleNextRef.current();
+    };
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("loadedmetadata", onLoadedMetadata);
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
+
+    return () => {
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
+    };
+  }, []);
+
+  // onEnded内から最新のhandleNextを呼べるようにするためのref
+  const handleNextRef = useRef(handleNext);
+  useEffect(() => {
+    handleNextRef.current = handleNext;
+  }, [handleNext]);
+
+  // MediaSession APIでロック画面/コントロールセンターの操作に対応
+  // (iOS Safariでの対応範囲はOSバージョンに依存する)
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+
+    if (currentTrack) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: "Demo Player",
+      });
+      navigator.mediaSession.setActionHandler("play", handlePlay);
+      navigator.mediaSession.setActionHandler("pause", handlePause);
+      navigator.mediaSession.setActionHandler("previoustrack", handlePrev);
+      navigator.mediaSession.setActionHandler("nexttrack", handleNext);
+      navigator.mediaSession.setActionHandler("seekto", (details) => {
+        if (details.seekTime != null) handleSeek(details.seekTime);
+      });
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    } else {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = "none";
+    }
+  }, [currentTrack, isPlaying, handlePlay, handlePause, handlePrev, handleNext, handleSeek]);
+
+  return (
+    <React.Fragment>
+      <audio ref={audioRef} preload="metadata" playsInline />
+
+      {view === "library" && (
+        <LibraryScreen
+          tracks={tracks}
+          onSelectTrack={handleSelectTrack}
+          onImportFiles={handleImportFiles}
+          onRequestDelete={handleRequestDelete}
+          onReorder={handleReorder}
+          storageError={storageError}
+          currentTrack={currentTrack}
+          isPlaying={isPlaying}
+          onTogglePlay={handleTogglePlay}
+          onOpenPlayer={() => setView("player")}
+        />
+      )}
+
+      {view === "player" && (
+        <PlayerScreen
+          track={currentTrack}
+          isPlaying={isPlaying}
+          currentTime={currentTime}
+          duration={duration}
+          onTogglePlay={handleTogglePlay}
+          onNext={handleNext}
+          onPrev={handlePrev}
+          onSeek={handleSeek}
+          onBack={() => setView("library")}
+          hasNext={hasNext}
+          hasPrev={hasPrev}
+        />
+      )}
+
+      <ConfirmDeleteDialog
+        track={deleteTarget}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+    </React.Fragment>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
